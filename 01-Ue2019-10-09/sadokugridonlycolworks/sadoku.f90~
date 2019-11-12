@@ -1,0 +1,243 @@
+! moritz siegel 191016
+! sudoku solver via simulated annealing & heat bath / metropolis
+! ij : 11 12 13 ...
+!      21 22 
+!      31    ...
+!      ...
+
+! OPEN ISSUES:
+
+program sadoku
+  
+  implicit none
+  
+  logical, dimension(9,9) :: mask, num ! predefined sudoku values
+  integer, dimension(9), parameter :: im=[2,2,2,5,5,5,8,8,8] ! middlemen
+  integer, dimension(9), parameter :: jm=[2,5,8,2,5,8,2,5,8]
+  integer, dimension(9), parameter :: in=[-1,-1,-1,0,0,0,1,1,1] ! nearest neighbours
+  integer, dimension(9), parameter :: jn=[-1,0,1,-1,0,1,-1,0,1]
+  integer, dimension (9,9) :: sudokuin, sudoku, col, row, prt, colte, rowte, prtte, sudote
+  integer :: i, j, m, n, ai, aj, bi, bj, c, dummy, o, p, same
+  integer :: a, b, de, dcol, drow, flips, accept, energy, eold, reheat
+  real*8, parameter ::   tf=0.1, ti=100, lambda=0.9
+  real*8 :: r, t
+  
+
+  call srand(time()) ! initialise random numbers
+
+  ! read sudoku, define mask of empty slots, random-seed those
+  open(unit=10, file='sudoku.dat') ! assuming its a matrix of space separated lines of integers in ascii
+  read(10,*) sudokuin
+  sudoku = sudokuin
+  num(:,:) = .false.
+  do m = 1, 9 ! select patch middlemen
+     do n = 1, 9 ! cycle through neighbours within selected patch
+        i = im(m) + in(n)
+        j = jm(m) + jn(n)
+
+        ! read sudoku & discard fixed state numbers
+        if ( sudoku(i,j) .eq. 0 ) then ! mask 0 := free slot
+           mask(i,j) = .false.
+        else
+           mask(i,j) = .true.
+           num(m,sudoku(i,j)) = .true.
+        end if
+     end do
+     do n = 1, 9 ! cycle through neighbours within selected patch
+        i = im(m) + in(n)
+        j = jm(m) + jn(n)
+        ! write empty sudoku cells
+        if ( mask(i,j) .eqv. .false. ) then
+           do
+              sudoku(i,j)  = int(9.d0*rand()) + 1
+              if ( num(m,sudoku(i,j)) .eqv. .true. ) then ! number is already present, guess another
+                 cycle 
+              else ! take that
+                 num(m,sudoku(i,j)) = .true.
+                 exit
+              end if
+           end do
+        end if
+     end do
+  end do
+  write(*,*) "sudokuin"
+  write(*,*) ( ( sudokuin(i,j), i=1,9 ), new_line('A'), j=1,9 )
+  write(*,*) "mask"
+  write(*,*) ( ( mask(i,j), i=1,9 ), new_line('A'), j=1,9 )
+  write(*,*) "initial sudoku"
+  write(*,*) ( ( sudoku(i,j), i=1,9 ), new_line('A'), j=1,9 )
+
+  ! divide & rule:  count energy
+  col(:,:) = -1
+  row(:,:) = -1
+  prt(:,:) = -1
+  do m = 1, 9 ! select patch middlemen
+     do n = 1, 9 ! cycle through neighbours within selected patch
+        i = im(m) + in(n)
+        j = jm(m) + jn(n)
+        col(i,sudoku(i,j)) = col(i,sudoku(i,j)) + 1
+        row(j,sudoku(i,j)) = row(j,sudoku(i,j)) + 1
+        prt(m,sudoku(i,j)) = prt(m,sudoku(i,j)) + 1
+     end do
+  end do
+  energy = sum(abs(col(:,:))) + sum(abs(row(:,:)))
+  write(*,*) "col 1--9, numbers 1|9"
+  write(*,*) ( ( col(i,j), i=1,9 ), new_line('A'), j=1,9 )
+  write(*,*) "row 1--9, numbers 1|9"
+  write(*,*) ( ( row(i,j), i=1,9 ), new_line('A'), j=1,9 )
+  write(*,*) "prt 1--9, numbers 1|9"
+  write(*,*) ( ( prt(i,j), i=1,9 ), new_line('A'), j=1,9 )
+  write(*,*) "initial energy", energy
+  
+  ! sweeeeep
+  t = ti
+  c = 1
+  flips = 0
+  accept = 0
+  eold = energy
+  same = 0
+  reheat = 0
+  open(unit=20, file='stats.dat')
+  cool : do while ( t .gt. tf )
+     markov : do n = 1,8000
+        ! select patch
+        m = int(8.d0*rand()) + 1
+        ! select two different fields in that patch
+
+        a = 0
+        do ! if number is fixed state guess again
+           a = mod(a + int(8.d0*rand()) , 9) + 1
+           ai = im(m) + in(a)
+           aj = jm(m) + jn(a)
+           if ( mask(ai,aj) .eqv. .false. ) exit
+        end do
+        do ! if number is fixed state guess again
+           b = mod(a + int(8.d0*rand()) , 9) + 1
+           bi = im(m) + in(b)
+           bj = jm(m) + jn(b)
+           if ( mask(bi,bj) .eqv. .false. ) exit
+        end do
+
+        sudote = sudoku
+        sudote(ai,aj) = sudoku(bi,bj)
+        sudote(bi,bj) = sudoku(ai,aj)
+
+        ! divide & rule:  count energy
+        colte(:,:) = -1
+        rowte(:,:) = -1
+        prtte(:,:) = -1
+        do o = 1, 9 ! select patch middlemen
+           do p = 1, 9 ! cycle through neighbours within selected patch
+              i = im(o) + in(p)
+              j = jm(o) + jn(p)
+              colte(i,sudote(i,j)) = colte(i,sudote(i,j)) + 1
+              rowte(j,sudote(i,j)) = rowte(j,sudote(i,j)) + 1
+              prtte(o,sudote(i,j)) = prtte(o,sudote(i,j)) + 1
+           end do
+        end do
+        de = - energy + sum(abs(col(:,:))) + sum(abs(row(:,:)))
+
+        ! update cols & rows & patch & energy
+        !  dcol = - abs(col(ai,sudoku(ai,aj))) - abs(col(ai,sudoku(bi,bj))) &
+        !       - abs(col(bi,sudoku(bi,bj))) - abs(col(bi,sudoku(ai,aj))) &
+        !       + abs(col(ai,sudoku(ai,aj))-1) + abs(col(ai,sudoku(bi,bj))+1) &
+        !       + abs(col(bi,sudoku(bi,bj))-1) + abs(col(bi,sudoku(ai,aj))+1)
+        !  drow = - abs(row(ai,sudoku(ai,aj))) - abs(row(ai,sudoku(bi,bj))) &
+        !       - abs(row(bi,sudoku(bi,bj))) - abs(row(bi,sudoku(ai,aj))) &
+        !       + abs(row(ai,sudoku(ai,aj))-1) + abs(row(ai,sudoku(bi,bj))+1) &
+        !       + abs(row(bi,sudoku(bi,bj))-1) + abs(row(bi,sudoku(ai,aj))+1)
+        !  de = dcol + drow ! -6 < de < 6
+        !  write(*,*) "de:", de
+
+        ! check for floating point overflow & define r
+        if ( de/t .gt. 20.d0 ) then
+           r = 0.d0
+        else if ( de/t .lt. 0.001d0 ) then
+           r = 1.d0
+        else
+           r = exp(-de/t)
+        end if
+        write(*,*) "r:",r, "-de/t", -de/t
+
+        ! accept or deny & metropolis algorithm
+        if ( rand() .lt. r ) then
+           ! update row & col
+           col(ai,sudoku(ai,aj)) = col(ai,sudoku(ai,aj)) -1
+           col(bi,sudoku(bi,bj)) = col(bi,sudoku(bi,bj)) -1
+           col(ai,sudoku(bi,bj)) = col(ai,sudoku(bi,bj)) +1
+           col(bi,sudoku(ai,aj)) = col(bi,sudoku(ai,aj)) +1
+           row(aj,sudoku(ai,aj)) = row(aj,sudoku(ai,aj)) -1
+           row(bj,sudoku(bi,bj)) = row(bj,sudoku(bi,bj)) -1
+           row(aj,sudoku(bi,bj)) = row(aj,sudoku(bi,bj)) +1
+           row(bj,sudoku(ai,aj)) = row(bj,sudoku(ai,aj)) +1
+           ! swap the two numbers
+           dummy = sudoku(ai,aj)
+           sudoku(ai,aj) = sudoku(bi,bj)
+           sudoku(bi,bj) = dummy
+           ! count flips & update energy
+           flips = flips + 1
+           energy = energy + de
+           write(*,*) "energy:", energy
+
+           ! if solved, do not solve on
+           if (energy .eq. 0 ) then
+              write(*,*) "final sudoku"
+              write(*,*) ( ( sudoku(i,j), i=1,9 ), new_line('A'), j=1,9 )
+              write(*,*) "col 1--9, numbers 1|9"
+              write(*,*) ( ( col(i,j), i=1,9 ), new_line('A'), j=1,9 )
+              write(*,*) "row 1--9, numbers 1|9"
+              write(*,*) ( ( row(i,j), i=1,9 ), new_line('A'), j=1,9 )
+              write(*,*) "prt 1--9, numbers 1|9"
+              write(*,*) ( ( prt(i,j), i=1,9 ), new_line('A'), j=1,9 )
+              write(*,*) 'runs: ',c, 'total flips: ',accept, 'final energy: ',energy
+
+              stop
+
+           end if
+        end if
+
+     end do markov
+
+     ! count number of chains that do not change in energy
+     if ( eold .eq. energy ) same = same + 1
+     eold = energy
+
+     ! reheat
+     if ( same .gt. 10 ) then
+        same = 0
+        reheat = reheat + 1
+        t = ti
+        write(20,*) ! seperate blocks of data
+        if ( reheat .gt. 10 ) exit
+     end if
+        
+     write(*,*) "sudoku"
+     write(*,*) ( ( sudoku(i,j), i=1,9 ), new_line('A'), j=1,9 )
+     write(*,*) "col 1--9, numbers 1|9"
+     write(*,*) ( ( col(i,j), i=1,9 ), new_line('A'), j=1,9 )
+     write(*,*) "row 1--9, numbers 1|9"
+     write(*,*) ( ( row(i,j), i=1,9 ), new_line('A'), j=1,9 )
+     ! write & reset flips
+     write(*,*) 'run: ',c, 'temperature: ',t ,'flips: ',flips, 'energy: ',energy
+     write(20,*) c, t, flips, energy
+     accept = accept + flips
+     flips = 0
+     
+     ! decrease temperature & count sweeps
+     t = t * lambda
+     c = c + 1
+     
+  end do cool
+  
+  write(*,*) "final sudoku"
+  write(*,*) ( ( sudoku(i,j), i=1,9 ), new_line('A'), j=1,9 )
+  write(*,*) "col 1--9, numbers 1|9"
+  write(*,*) ( ( col(i,j), i=1,9 ), new_line('A'), j=1,9 )
+  write(*,*) "row 1--9, numbers 1|9"
+  write(*,*) ( ( row(i,j), i=1,9 ), new_line('A'), j=1,9 )
+  write(*,*) "prt 1--9, numbers 1|9"
+  write(*,*) ( ( prt(i,j), i=1,9 ), new_line('A'), j=1,9 )
+  write(*,*) 'runs: ',c, 'total flips: ',accept, 'final energy: ',energy
+  
+  
+end program sadoku
