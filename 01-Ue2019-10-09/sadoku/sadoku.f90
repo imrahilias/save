@@ -11,32 +11,34 @@ program sadoku
 
   implicit none
   ! \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-  real*8, parameter :: tf=0.01, ti=100, lambda=0.999
+  real*8, parameter :: ti=100, tf=0.01, lambda=0.999, hot=3
   ! ////////////////////////////////////////////////////////////////////////////
   logical, dimension(9,9) :: mask, num ! predefined sudoku values
   integer, dimension(9), parameter :: im=[2,2,2,5,5,5,8,8,8] ! middlemen
   integer, dimension(9), parameter :: jm=[2,5,8,2,5,8,2,5,8]
   integer, dimension(9), parameter :: in=[-1,-1,-1,0,0,0,1,1,1] ! nearest neighbours
   integer, dimension(9), parameter :: jn=[-1,0,1,-1,0,1,-1,0,1]
-  integer, dimension (9,9) :: sudokuin, sudoku, col, row, prt, colte, rowte, prtte, sudote, coltemp, rowtemp
+  integer, dimension (9,9) :: sudokuin, sudoku, col, row, coltemp, rowtemp
   integer :: i, j, m, n, ai, aj, bi, bj, c, dummy, o, p, same, chains
   integer :: a, b, de, dcol, drow, flips, accept, energy, reheat, eold
   real*8 :: r, t
 
-  call srand(time()) ! initialise random numbers
-  
-  call seedoku()
-
-  ! sweeeeep
+  ! init
+  open(unit=20, file='stats.dat')
+  open(unit=30, file='sadoku.dat')
   t = ti
   c = 0
   flips = 0
   accept = 0
   reheat = 0
   same = 0
-   eold = energy
-  open(unit=20, file='stats.dat')
-  open(unit=30, file='sadoku.dat')
+  eold = energy
+  
+  call srand(time()) ! initialise random numbers
+  
+  call seedoku()
+
+  ! sweeeeep
   cool : do while ( t .gt. tf )
      accept = accept + flips
      flips = 0
@@ -116,13 +118,14 @@ program sadoku
      eold = energy
 
      ! reheat if stuck / solution not obtained
-     if ( same .gt. 20 .and. reheat .lt. 10) then
-        call seedoku() ! reseed
+     if ( same .gt. 20 .and. reheat .lt. hot ) then
         same = 0
         reheat = reheat + 1
         t = ti
         write(*,*) 'chain: ',n, 'reheating'
-        write(20,*) ! seperate blocks of data
+        write(20,*) new_line('a') ! seperate blocks of data
+        write(30,*) new_line('a') ! seperate blocks of data
+        call seedoku() ! reseed
         cycle cool
      end if
   

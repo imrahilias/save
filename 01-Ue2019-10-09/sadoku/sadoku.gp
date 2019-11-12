@@ -18,7 +18,7 @@ plot 'stats.dat' u 2:4 w l
 
 reset
 unset key
-set xlabel 'kbT / a.u.'
+set xlabel 'run'
 set ylabel 'flips '
 set term png
 set output "flipsraw.png"
@@ -26,7 +26,7 @@ plot 'stats.dat' u 1:3 w l
 
 reset
 unset key
-set xlabel 'kbT / a.u.'
+set xlabel 'run'
 set ylabel 'energy'
 set term png
 set output "energyraw.png"
